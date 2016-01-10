@@ -20,8 +20,10 @@ var version = "dev-build"
 const (
 	base_url  = "https://slack.com/oauth/authorize"
 	client_id = "7065709201.17699618306"
-	scope     = "channels%3Aread+groups%3Aread+im%3Aread+users%3Aread+chat%3Awrite%3Auser+files%3Awrite%3Auser+files%3Aread"
+	scope     = "channels%3Aread+groups%3Aread+im%3Aread+users%3Aread+chat%3Awrite%3Auser+files%3Awrite%3Auser+files%3Aread+chat%3Awrite%3Auser+chat%3Awrite%3Abot"
 )
+
+var str = ""
 
 func getConfigPath() string {
 	homedir := os.Getenv("HOME")
@@ -96,6 +98,7 @@ func writeTemp(lines chan string) string {
 
 	w := bufio.NewWriter(tmp)
 	for line := range lines {
+		str += line + "\n"
 		fmt.Fprintln(w, line)
 	}
 	w.Flush()
@@ -149,6 +152,14 @@ func main() {
 			Name:  "filename, n",
 			Usage: "Filename for upload. Defaults to current timestamp",
 		},
+		cli.BoolFlag{
+			Name:  "chat, x",
+			Usage: "post chat message instead of uploading file",
+		},
+		cli.BoolFlag{
+			Name:  "asuser, a",
+			Usage: "post message as user",
+		},
 	}
 
 	app.Action = func(c *cli.Context) {
@@ -186,18 +197,29 @@ func main() {
 		}
 
 		if c.Bool("noop") {
-			output(fmt.Sprintf("skipping upload of file %s to %s", fileName, c.String("channel")))
+			if c.Bool("chat") {
+				output(fmt.Sprintf("skipping sending message to %s", c.String("channel")))
+			} else {
+				output(fmt.Sprintf("skipping upload of file %s to %s", fileName, c.String("channel")))
+			}
 		} else {
 			start := time.Now()
-			err = api.FilesUpload(&slack.FilesUploadOpt{
-				Filepath: filePath,
-				Filename: fileName,
-				Title:    fileName,
-				Channels: []string{channelId},
-			})
-			failOnError(err, "error uploading file to Slack", true)
-			duration := strconv.FormatFloat(time.Since(start).Seconds(), 'f', 3, 64)
-			output(fmt.Sprintf("file %s uploaded to %s (%ss)", fileName, c.String("channel"), duration))
+			if c.Bool("chat") {
+				err = api.ChatPostMessage(channelId, str, &slack.ChatPostMessageOpt{AsUser: c.Bool("asuser")})
+				failOnError(err, "error sending message to Slack", true)
+				duration := strconv.FormatFloat(time.Since(start).Seconds(), 'f', 3, 64)
+				output(fmt.Sprintf("message sent to %s (%ss)", c.String("channel"), duration))
+			} else {
+				err = api.FilesUpload(&slack.FilesUploadOpt{
+					Filepath: filePath,
+					Filename: fileName,
+					Title:    fileName,
+					Channels: []string{channelId},
+				})
+				failOnError(err, "error uploading file to Slack", true)
+				duration := strconv.FormatFloat(time.Since(start).Seconds(), 'f', 3, 64)
+				output(fmt.Sprintf("file %s uploaded to %s (%ss)", fileName, c.String("channel"), duration))
+			}
 		}
 	}
 
